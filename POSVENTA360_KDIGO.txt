@@ -1,0 +1,607 @@
+README.md
+# Posventa360 – Proyecto Full Stack (Demo académico)
+Este repositorio contiene una implementación DEMO del proyecto Posventa360:
+- `/backend`: API REST con NestJS (in-memory, sin BD).
+- `/frontend`: Interfaz React + Vite para login y gestión básica de tickets.
+## Cómo ejecutar
+### 1) Backend
+```bash
+cd backend
+npm install
+npm run start:dev
+```
+API: `http://localhost:3000/api/v1`
+### 2) Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+App: `http://localhost:5173`
+backend/package.json
+{
+"name": "posventa360-backend",
+"version": "1.0.0",
+"description": "API REST Posventa360 (NestJS demo)",
+"main": "dist/main.js",
+"scripts": {
+"start": "nest start",
+"start:dev": "nest start --watch",
+"build": "nest build"
+},
+"dependencies": {
+"@nestjs/common": "^10.0.0",
+"@nestjs/core": "^10.0.0",
+"@nestjs/platform-express": "^10.0.0",
+"reflect-metadata": "^0.1.13",
+"rxjs": "^7.0.0"
+},
+"devDependencies": {
+"@nestjs/cli": "^10.0.0",
+"@nestjs/schematics": "^10.0.0",
+"@nestjs/testing": "^10.0.0",
+"typescript": "^5.0.0",
+"@types/node": "^20.0.0"
+}
+}
+backend/tsconfig.json
+{
+"compilerOptions": {
+"module": "commonjs",
+"declaration": false,
+"removeComments": true,
+"emitDecoratorMetadata": true,
+"experimentalDecorators": true,
+"allowSyntheticDefaultImports": true,
+"target": "ES2017",
+"sourceMap": true,
+"outDir": "./dist",
+"baseUrl": "./",
+"incremental": true
+}
+}
+backend/README.md
+# Posventa360 – Backend (NestJS demo)
+API REST de ejemplo para el proyecto Posventa360.
+## Requisitos
+- Node.js 18+
+- Nest CLI (`npm i -g @nestjs/cli`)
+## Instalación
+```bash
+cd backend
+npm install
+```
+## Ejecución
+```bash
+npm run start:dev
+```
+La API se expone en: `http://localhost:3000/api/v1`.
+Endpoints principales:
+- `POST /api/v1/auth/login`
+- `POST /api/v1/tickets`
+- `PATCH /api/v1/tickets/:id/estado`
+- `GET /api/v1/tickets/cliente/:clienteId`
+- `GET /api/v1/tickets/:id/historial`
+backend/src/main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+async function bootstrap() {
+const app = await NestFactory.create(AppModule);
+app.setGlobalPrefix('api/v1');
+app.enableCors();
+await app.listen(3000);
+console.log('Posventa360 API corriendo en http://localhost:3000/api/v1');
+}
+bootstrap();
+backend/src/app.module.ts
+import { Module } from '@nestjs/common';
+import { TicketsModule } from './tickets/tickets.module';
+import { AuthModule } from './auth/auth.module';
+@Module({
+imports: [TicketsModule, AuthModule],
+})
+export class AppModule {}
+backend/src/tickets/tickets.module.ts
+import { Module } from '@nestjs/common';
+import { TicketsService } from './tickets.service';
+import { TicketsController } from './tickets.controller';
+@Module({
+controllers: [TicketsController],
+providers: [TicketsService],
+})
+export class TicketsModule {}
+backend/src/tickets/tickets.service.ts
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Ticket } from './entities/ticket.entity';
+import { CreateTicketDto } from './dto/create-ticket.dto';
+import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
+@Injectable()
+export class TicketsService {
+private tickets: Ticket[] = [];
+private currentId = 1;
+crearTicket(dto: CreateTicketDto): Ticket {
+const ticket = new Ticket({
+id: this.currentId++,
+titulo: dto.titulo,
+descripcion: dto.descripcion,
+prioridad: dto.prioridad,
+estado: 'abierto',
+clienteId: dto.clienteId,
+usuarioId: dto.usuarioId,
+});
+this.tickets.push(ticket);
+return ticket;
+}
+actualizarEstado(id: number, dto: UpdateTicketStatusDto): Ticket {
+const ticket = this.tickets.find(t => t.id === id);
+if (!ticket) {
+throw new NotFoundException('Ticket no encontrado');
+}
+ticket.estado = dto.nuevoEstado;
+return ticket;
+}
+obtenerTicketsPorCliente(clienteId: number): Ticket[] {
+return this.tickets.filter(t => t.clienteId === clienteId);
+}
+obtenerHistorialMock(id: number) {
+const ticket = this.tickets.find(t => t.id === id);
+if (!ticket) {
+throw new NotFoundException('Ticket no encontrado');
+}
+return {
+ticketId: id,
+historial: [
+{
+fecha: ticket.creadoEn,
+usuario: 'Sistema',
+accion: 'Creación',
+comentario: 'Ticket registrado',
+},
+],
+};
+}
+}
+backend/src/tickets/tickets.controller.ts
+import { Controller, Post, Patch, Get, Param, Body, ParseIntPipe } from '@nestjs/common';
+import { TicketsService } from './tickets.service';
+import { CreateTicketDto } from './dto/create-ticket.dto';
+import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
+@Controller('tickets')
+export class TicketsController {
+constructor(private readonly ticketsService: TicketsService) {}
+// Endpoint 1: Crear Ticket
+@Post()
+crearTicket(@Body() dto: CreateTicketDto) {
+const ticket = this.ticketsService.crearTicket(dto);
+return {
+message: 'Ticket creado exitosamente',
+ticketId: ticket.id,
+estado: ticket.estado,
+};
+}
+// Endpoint 2: Actualizar estado del Ticket
+@Patch(':id/estado')
+actualizarEstado(
+@Param('id', ParseIntPipe) id: number,
+@Body() dto: UpdateTicketStatusDto,
+) {
+const ticket = this.ticketsService.actualizarEstado(id, dto);
+return {
+message: 'Estado actualizado',
+ticketId: ticket.id,
+estadoActual: ticket.estado,
+};
+}
+// Endpoint 3: Obtener Tickets por Cliente
+@Get('/cliente/:clienteId')
+obtenerPorCliente(@Param('clienteId', ParseIntPipe) clienteId: number) {
+const tickets = this.ticketsService.obtenerTicketsPorCliente(clienteId);
+return {
+clienteId,
+total: tickets.length,
+tickets,
+};
+}
+// Endpoint 5: Historial de un Ticket (versión mock)
+@Get(':id/historial')
+historial(@Param('id', ParseIntPipe) id: number) {
+return this.ticketsService.obtenerHistorialMock(id);
+}
+}
+backend/src/tickets/dto/create-ticket.dto.ts
+import { TicketPrioridad } from '../entities/ticket.entity';
+export class CreateTicketDto {
+titulo: string;
+descripcion: string;
+prioridad: TicketPrioridad;
+clienteId: number;
+usuarioId: number;
+}
+backend/src/tickets/dto/update-ticket-status.dto.ts
+import { TicketEstado } from '../entities/ticket.entity';
+export class UpdateTicketStatusDto {
+nuevoEstado: TicketEstado;
+usuarioId: number;
+comentario?: string;
+}
+backend/src/tickets/entities/ticket.entity.ts
+export type TicketEstado = 'abierto' | 'en_proceso' | 'cerrado';
+export type TicketPrioridad = 'baja' | 'media' | 'alta' | 'critica';
+export class Ticket {
+id: number;
+titulo: string;
+descripcion: string;
+estado: TicketEstado;
+prioridad: TicketPrioridad;
+clienteId: number;
+usuarioId: number;
+creadoEn: Date;
+constructor(partial: Partial<Ticket>) {
+Object.assign(this, partial);
+this.creadoEn = this.creadoEn ?? new Date();
+}
+}
+backend/src/auth/auth.module.ts
+import { Module } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+@Module({
+controllers: [AuthController],
+providers: [AuthService],
+})
+export class AuthModule {}
+backend/src/auth/auth.service.ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+@Injectable()
+export class AuthService {
+login(email: string, password: string) {
+// DEMO: Validación simple para efectos académicos
+if (email !== 'demo@claro.com' || password !== '123456') {
+throw new UnauthorizedException('Credenciales inválidas');
+}
+return {
+token: 'token-demo-posventa360',
+usuario: {
+id: 1,
+nombre: 'Usuario Demo',
+rol: 'Asesor PyME',
+},
+};
+}
+}
+backend/src/auth/auth.controller.ts
+import { Controller, Post, Body } from '@nestjs/common';
+import { AuthService } from './auth.service';
+@Controller('auth')
+export class AuthController {
+constructor(private readonly authService: AuthService) {}
+// Endpoint 6: Autenticación
+@Post('login')
+login(@Body() body: { email: string; password: string }) {
+return this.authService.login(body.email, body.password);
+}
+}
+frontend/package.json
+{
+"name": "posventa360-frontend",
+"version": "1.0.0",
+"private": true,
+"scripts": {
+"dev": "vite",
+"build": "vite build",
+"preview": "vite preview"
+},
+"dependencies": {
+"react": "^18.0.0",
+"react-dom": "^18.0.0"
+},
+"devDependencies": {
+"@types/react": "^18.0.0",
+"@types/react-dom": "^18.0.0",
+"typescript": "^5.0.0",
+"vite": "^5.0.0"
+}
+}
+frontend/tsconfig.json
+{
+"compilerOptions": {
+"target": "ESNext",
+"useDefineForClassFields": true,
+"lib": [
+"DOM",
+"DOM.Iterable",
+"ESNext"
+],
+"allowJs": false,
+"skipLibCheck": true,
+"esModuleInterop": true,
+"allowSyntheticDefaultImports": true,
+"strict": true,
+"forceConsistentCasingInFileNames": true,
+"module": "ESNext",
+"moduleResolution": "bundler",
+"resolveJsonModule": true,
+"isolatedModules": true,
+"noEmit": true,
+"jsx": "react-jsx"
+},
+"include": [
+"src"
+]
+}
+frontend/vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+export default defineConfig({
+plugins: [react()],
+server: {
+port: 5173,
+},
+});
+frontend/index.html
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Posventa360</title>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
+frontend/README.md
+# Posventa360 – Frontend (React + Vite demo)
+Interfaz mínima para el proyecto Posventa360.
+## Requisitos
+- Node.js 18+
+## Instalación
+```bash
+cd frontend
+npm install
+```
+## Ejecución
+```bash
+npm run dev
+```
+La app se abre en: `http://localhost:5173`.
+Credenciales demo:
+- Correo: `demo@claro.com`
+- Contraseña: `123456`
+frontend/src/main.tsx
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { App } from './App';
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+<React.StrictMode>
+<App />
+</React.StrictMode>
+);
+frontend/src/App.tsx
+import React, { useState } from 'react';
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+export const App: React.FC = () => {
+const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+const [userName, setUserName] = useState<string | null>(localStorage.getItem('userName'));
+const handleLogin = (token: string, nombre: string) => {
+setToken(token);
+setUserName(nombre);
+localStorage.setItem('token', token);
+localStorage.setItem('userName', nombre);
+};
+const handleLogout = () => {
+setToken(null);
+setUserName(null);
+localStorage.removeItem('token');
+localStorage.removeItem('userName');
+};
+if (!token) {
+return <Login onLogin={handleLogin} />;
+}
+return <Dashboard token={token} userName={userName} onLogout={handleLogout} />;
+};
+frontend/src/pages/Login.tsx
+import React, { useState } from 'react';
+import { login } from '../services/api';
+interface Props {
+onLogin: (token: string, nombre: string) => void;
+}
+export const Login: React.FC<Props> = ({ onLogin }) => {
+const [email, setEmail] = useState('demo@claro.com');
+const [password, setPassword] = useState('123456');
+const [error, setError] = useState<string | null>(null);
+const [loading, setLoading] = useState(false);
+const handleSubmit = async (e: React.FormEvent) => {
+e.preventDefault();
+setLoading(true);
+setError(null);
+try {
+const res = await login(email, password);
+onLogin(res.token, res.usuario.nombre);
+} catch (err: any) {
+setError('Credenciales inválidas');
+} finally {
+setLoading(false);
+}
+};
+return (
+<div style={{ maxWidth: 400, margin: '80px auto', padding: 24, border: '1px solid #ddd', borderRadius: <h2>Posventa360 - Login</h2>
+<form onSubmit={handleSubmit}>
+<div style={{ marginBottom: 12 }}>
+<label>Correo</label>
+<input
+type="email"
+value={email}
+onChange={e => setEmail(e.target.value)}
+style={{ width: '100%' }}
+/>
+</div>
+<div style={{ marginBottom: 12 }}>
+<label>Contraseña</label>
+<input
+type="password"
+value={password}
+onChange={e => setPassword(e.target.value)}
+style={{ width: '100%' }}
+/>
+</div>
+{error && <p style={{ color: 'red' }}>{error}</p>}
+<button type="submit" disabled={loading}>
+{loading ? 'Ingresando...' : 'Ingresar'}
+</button>
+</form>
+<p style={{ fontSize: 12, marginTop: 12 }}>Demo: demo@claro.com / 123456</p>
+</div>
+);
+};
+frontend/src/pages/Dashboard.tsx
+import React from 'react';
+import { TicketList } from '../components/TicketList';
+interface Props {
+token: string;
+userName: string | null;
+onLogout: () => void;
+}
+export const Dashboard: React.FC<Props> = ({ token, userName, onLogout }) => {
+return (
+<div style={{ padding: 24 }}>
+<header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+<h2>Posventa360 - Dashboard</h2>
+<div>
+<span style={{ marginRight: 12 }}>Hola, {userName ?? 'Usuario'}</span>
+<button onClick={onLogout}>Cerrar sesión</button>
+</div>
+</header>
+<section>
+<h3>Tickets del Cliente #1</h3>
+<TicketList token={token} clienteId={1} />
+</section>
+</div>
+);
+};
+frontend/src/components/TicketList.tsx
+import React, { useEffect, useState } from 'react';
+import { createTicket, getTicketsByCliente } from '../services/api';
+interface Ticket {
+id: number;
+titulo: string;
+descripcion: string;
+estado: string;
+prioridad: string;
+}
+interface Props {
+token: string;
+clienteId: number;
+}
+export const TicketList: React.FC<Props> = ({ token, clienteId }) => {
+const [tickets, setTickets] = useState<Ticket[]>([]);
+const [titulo, setTitulo] = useState('Falla en enlace dedicado');
+const [descripcion, setDescripcion] = useState('Cliente reporta intermitencia');
+const [prioridad, setPrioridad] = useState('alta');
+const cargarTickets = async () => {
+const res = await getTicketsByCliente(clienteId);
+setTickets(res.tickets ?? []);
+};
+useEffect(() => {
+cargarTickets();
+}, []);
+const handleCrear = async (e: React.FormEvent) => {
+e.preventDefault();
+await createTicket({
+titulo,
+descripcion,
+prioridad,
+clienteId,
+usuarioId: 1,
+});
+await cargarTickets();
+};
+return (
+<div>
+<form onSubmit={handleCrear} style={{ marginBottom: 16 }}>
+<input
+placeholder="Título"
+value={titulo}
+onChange={e => setTitulo(e.target.value)}
+style={{ marginRight: 8 }}
+/>
+<input
+placeholder="Descripción"
+value={descripcion}
+onChange={e => setDescripcion(e.target.value)}
+style={{ marginRight: 8 }}
+/>
+<select value={prioridad} onChange={e => setPrioridad(e.target.value)} style={{ marginRight: 8 }}>
+<option value="baja">Baja</option>
+<option value="media">Media</option>
+<option value="alta">Alta</option>
+<option value="critica">Crítica</option>
+</select>
+<button type="submit">Crear Ticket</button>
+</form>
+{tickets.length === 0 ? (
+<p>No hay tickets aún.</p>
+) : (
+<table border={1} cellPadding={4}>
+<thead>
+<tr>
+<th>ID</th>
+<th>Título</th>
+<th>Estado</th>
+<th>Prioridad</th>
+</tr>
+</thead>
+<tbody>
+{tickets.map(t => (
+<tr key={t.id}>
+<td>{t.id}</td>
+<td>{t.titulo}</td>
+<td>{t.estado}</td>
+<td>{t.prioridad}</td>
+</tr>
+))}
+</tbody>
+</table>
+)}
+</div>
+);
+};
+frontend/src/services/api.ts
+const API_URL = 'http://localhost:3000/api/v1';
+export async function login(email: string, password: string) {
+const res = await fetch(`${API_URL}/auth/login`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ email, password }),
+});
+if (!res.ok) {
+throw new Error('Error de login');
+}
+return res.json();
+}
+export async function getTicketsByCliente(clienteId: number) {
+const res = await fetch(`${API_URL}/tickets/cliente/${clienteId}`);
+if (!res.ok) {
+throw new Error('Error al obtener tickets');
+}
+return res.json();
+}
+interface CreateTicketPayload {
+titulo: string;
+descripcion: string;
+prioridad: string;
+clienteId: number;
+usuarioId: number;
+}
+export async function createTicket(payload: CreateTicketPayload) {
+const res = await fetch(`${API_URL}/tickets`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(payload),
+});
+if (!res.ok) {
+throw new Error('Error al crear ticket');
+}
+return res.json();
+}
